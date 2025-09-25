@@ -131,7 +131,7 @@ app.get('/api/bitget/candles', async (req, res) => {
         period,
         open,
         close,
-        variation: variation.toFixed(4), // ex: -0.0315
+        variation: variation.toFixed(8), // ex: -0.0315
         ts: candle.ts,
       });
     } else {
@@ -165,3 +165,4 @@ app.get('/api/bitget/products', async (req, res) => {
     return res.status(500).json({ error: String(err) });
   }
 });
+
