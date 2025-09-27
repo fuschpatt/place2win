@@ -11,16 +11,26 @@ let tickersCache = [];
 let lastFetchTime = 0;
 const CACHE_DURATION = 30000; // 30 secondes
 
-// Clé API Bitget (à sécuriser en production)
-const BITGET_API_KEY = 'bg_d361a55fbc6ed7519dd00b39ba9af08e';
-
 // Autoriser CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   next();
 });
 
-// Endpoint pour récupérer tous les tickers
+// Fonction pour formater les données des tickers (ne garder que les infos essentielles)
+function formatTickerData(rawTicker) {
+  return {
+    symbol: rawTicker.symbol,
+    price: parseFloat(rawTicker.close),
+    change24h: parseFloat(rawTicker.change) * 100, // Convertir en pourcentage
+    high24h: parseFloat(rawTicker.high24h),
+    low24h: parseFloat(rawTicker.low24h),
+    volume24h: parseFloat(rawTicker.quoteVol),
+    timestamp: rawTicker.ts
+  };
+}
+
+// Endpoint principal pour récupérer tous les tickers
 app.get('/api/bitget/all-tickers', async (req, res) => {
   const now = Date.now();
   
@@ -37,8 +47,7 @@ app.get('/api/bitget/all-tickers', async (req, res) => {
     console.log(`Making request to: ${url}`);
     const response = await fetch(url, {
       headers: {
-        'Content-Type': 'application/json',
-        'X-API-KEY': BITGET_API_KEY
+        'Content-Type': 'application/json'
       }
     });
     
@@ -49,13 +58,13 @@ app.get('/api/bitget/all-tickers', async (req, res) => {
     }
     
     const data = await response.json();
-    console.log('API Response:', JSON.stringify(data, null, 2).substring(0, 500) + '...');
+    console.log('API Response received');
 
-    if (data.code === '00000' || (Array.isArray(data) && data.length > 0)) {
-      // Mettre à jour le cache
-      tickersCache = data.data || [];
+    if (data.code === '00000' && data.data && Array.isArray(data.data)) {
+      // Formater les données pour ne garder que l'essentiel
+      tickersCache = data.data.map(formatTickerData);
       lastFetchTime = now;
-      console.log(`Fetched ${tickersCache.length} tickers from Bitget API`);
+      console.log(`Fetched and formatted ${tickersCache.length} tickers from Bitget API`);
       return res.json(tickersCache);
     } else {
       console.error('Error from Bitget API:', data);
@@ -73,10 +82,9 @@ app.get('/api/bitget/all-tickers', async (req, res) => {
   }
 });
 
-// Endpoint pour un ticker spécifique (maintenant utilise le cache)
+// Endpoint pour un ticker spécifique (utilise le cache)
 app.get('/api/bitget/ticker', async (req, res) => {
-  const raw = req.query.symbol || 'BTCUSDT_SPBL';
-  const symbol = raw.toUpperCase().trim();
+  const symbol = (req.query.symbol || 'BTCUSDT').toUpperCase().trim();
   
   try {
     // D'abord essayer de récupérer depuis le cache
@@ -85,33 +93,29 @@ app.get('/api/bitget/ticker', async (req, res) => {
       return res.json(cachedTicker);
     }
     
-    // Sinon, faire une requête directe
-    const url = `https://api.bitget.com/api/spot/v1/market/ticker?symbol=${symbol}`;
-    console.log('Fetching single ticker:', url);
-    
-    const response = await fetch(url);
-    const data = await response.json();
-
-    if (response.ok && data.code === '00000') {
-      // Mettre à jour le cache
-      tickersCache = tickersCache.filter(t => t.symbol !== symbol);
-      tickersCache.push(data.data);
-      return res.json(data.data);
-    } else {
-      return res.status(response.status).json({ error: data });
-    }
+    // Si pas dans le cache, retourner une erreur
+    return res.status(404).json({ 
+      error: 'Ticker not found in cache. Please refresh the all-tickers endpoint first.' 
+    });
   } catch (err) {
     console.error('Error:', err);
     return res.status(500).json({ error: String(err) });
   }
 });
 
-// Endpoint pour les bougies et variation %
+// Endpoint pour les bougies et variation % (gardé comme demandé)
 app.get('/api/bitget/candles', async (req, res) => {
   const raw = req.query.symbol || 'BTCUSDT_SPBL';
   const period = req.query.period || '1h'; // '5min' ou '1h'
   const symbol = raw.toUpperCase().trim();
-  const url = `https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=${period}&limit=1`;
+  
+  // Utiliser le bon endpoint selon la période
+  let url;
+  if (period === '5min') {
+    url = `https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=5m&limit=1`;
+  } else {
+    url = `https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=1h&limit=1`;
+  }
 
   console.log(`Requesting candles: ${url}`);
 
@@ -144,30 +148,16 @@ app.get('/api/bitget/candles', async (req, res) => {
   }
 });
 
+// Endpoint de santé
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'OK', 
+    cachedTickers: tickersCache.length,
+    lastUpdate: new Date(lastFetchTime).toISOString()
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-app.get('/api/bitget/products', async (req, res) => {
-  const url = 'https://api.bitget.com/api/spot/v1/public/products';
-
-  try {
-    const response = await fetch(url);
-    const data = await response.json();
-
-    if (response.ok && data.code === '00000') {
-      return res.json(data.data);
-    } else {
-      return res.status(response.status).json({ error: data });
-    }
-  } catch (err) {
-    console.error('Error:', err);
-    return res.status(500).json({ error: String(err) });
-  }
-});
-
-app.get('/health', (req, res) => {
-  res.status(200).send('OK');
-});
-
 
