@@ -11,6 +11,9 @@ let tickersCache = [];
 let lastFetchTime = 0;
 const CACHE_DURATION = 30000; // 30 secondes
 
+// Clé API Bitget (à sécuriser en production)
+const BITGET_API_KEY = 'bg_d361a55fbc6ed7519dd00b39ba9af08e';
+
 // Autoriser CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -30,7 +33,7 @@ function formatTickerData(rawTicker) {
   };
 }
 
-// Endpoint principal pour récupérer tous les tickers
+// Endpoint pour récupérer tous les tickers (nom, prix, variation 24h)
 app.get('/api/bitget/all-tickers', async (req, res) => {
   const now = Date.now();
   
@@ -103,9 +106,9 @@ app.get('/api/bitget/ticker', async (req, res) => {
   }
 });
 
-// Endpoint pour les bougies et variation % (gardé comme demandé)
+// Endpoint pour les bougies et variation % (5min et 1h)
 app.get('/api/bitget/candles', async (req, res) => {
-  const raw = req.query.symbol || 'BTCUSDT_SPBL';
+  const raw = req.query.symbol || 'BTCUSDT';
   const period = req.query.period || '1h'; // '5min' ou '1h'
   const symbol = raw.toUpperCase().trim();
   
