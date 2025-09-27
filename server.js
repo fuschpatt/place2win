@@ -115,9 +115,9 @@ app.get('/api/bitget/candles', async (req, res) => {
   // Utiliser le bon endpoint selon la période
   let url;
   if (period === '5m') {
-    url = `https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=5m&limit=1`;
+    url = `https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=5m&limit=2`;
   } else {
-    url = `https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=1h&limit=1`;
+    url = `https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=1h&limit=2`;
   }
 
   console.log(`Requesting candles: ${url}`);
