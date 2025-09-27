@@ -109,12 +109,12 @@ app.get('/api/bitget/ticker', async (req, res) => {
 // Endpoint pour les bougies et variation % (5min et 1h)
 app.get('/api/bitget/candles', async (req, res) => {
   const raw = req.query.symbol || 'BTCUSDT';
-  const period = req.query.period || '1h'; // '5min' ou '1h'
+  const period = req.query.period || '1h'; // '5m' ou '1h'
   const symbol = raw.toUpperCase().trim();
   
   // Utiliser le bon endpoint selon la période
   let url;
-  if (period === '5min') {
+  if (period === '5m') {
     url = `https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=5m&limit=1`;
   } else {
     url = `https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=1h&limit=1`;
