@@ -112,12 +112,15 @@ app.get('/api/bitget/candles', async (req, res) => {
   const period = req.query.period || '1h'; // '5m' ou '1h'
   const symbol = raw.toUpperCase().trim();
   
-  // Utiliser le bon endpoint selon la période
+  // Ajouter le suffixe USDT si nécessaire
+  const fullSymbol = symbol.endsWith('USDT') ? symbol : `${symbol}USDT`;
+  
+  // Utiliser les bons endpoints pour USDT-FUTURES
   let url;
   if (period === '5m') {
-    url = `https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=5m&limit=2`;
+    url = `https://api.bitget.com/api/v2/mix/market/candles?symbol=${fullSymbol}&productType=USDT-FUTURES&granularity=5m&limit=2`;
   } else {
-    url = `https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=1h&limit=2`;
+    url = `https://api.bitget.com/api/v2/mix/market/candles?symbol=${fullSymbol}&productType=USDT-FUTURES&granularity=1H&limit=2`;
   }
 
   console.log(`Requesting candles: ${url}`);
@@ -126,23 +129,31 @@ app.get('/api/bitget/candles', async (req, res) => {
     const response = await fetch(url);
     const data = await response.json();
 
-    if (response.ok && data.code === '00000' && data.data && data.data.length > 0) {
-      const candle = data.data[0];
-      const open = parseFloat(candle.open);
-      const close = parseFloat(candle.close);
+    if (response.ok && data.code === '00000' && data.data && data.data.length >= 2) {
+      // Prendre les 2 dernières bougies pour calculer la variation
+      const current = data.data[0];
+      const previous = data.data[1];
+      
+      const open = parseFloat(previous.close);
+      const close = parseFloat(current.close);
 
-      const variation = ((close - open) / open) * 100; // en pourcentage
+      const variation = open !== 0 ? ((close - open) / open) * 100 : 0; // en pourcentage
 
       return res.json({
-        symbol,
+        symbol: fullSymbol,
         period,
         open,
         close,
         variation: variation.toFixed(8), // ex: -0.0315
-        ts: candle.ts,
+        ts: current.ts,
       });
     } else {
-      return res.status(response.status).json({ error: data });
+      console.error('API Error:', data);
+      return res.status(response.status).json({ 
+        error: data.msg || 'Failed to fetch candles',
+        code: data.code,
+        data: data 
+      });
     }
 
   } catch (err) {
