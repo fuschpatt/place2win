@@ -20,20 +20,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Fonction pour formater les données des tickers (ne garder que les infos essentielles)
-function formatTickerData(rawTicker) {
-  return {
-    symbol: rawTicker.symbol,
-    price: parseFloat(rawTicker.close),
-    change24h: parseFloat(rawTicker.change) * 100, // Convertir en pourcentage
-    high24h: parseFloat(rawTicker.high24h),
-    low24h: parseFloat(rawTicker.low24h),
-    volume24h: parseFloat(rawTicker.quoteVol),
-    timestamp: rawTicker.ts
-  };
-}
-
-// Endpoint pour récupérer tous les tickers (nom, prix, variation 24h)
+// Endpoint pour récupérer tous les tickers
 app.get('/api/bitget/all-tickers', async (req, res) => {
   const now = Date.now();
   
@@ -50,7 +37,8 @@ app.get('/api/bitget/all-tickers', async (req, res) => {
     console.log(`Making request to: ${url}`);
     const response = await fetch(url, {
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-API-KEY': BITGET_API_KEY
       }
     });
     
@@ -61,13 +49,13 @@ app.get('/api/bitget/all-tickers', async (req, res) => {
     }
     
     const data = await response.json();
-    console.log('API Response received');
+    console.log('API Response:', JSON.stringify(data, null, 2).substring(0, 500) + '...');
 
-    if (data.code === '00000' && data.data && Array.isArray(data.data)) {
-      // Formater les données pour ne garder que l'essentiel
-      tickersCache = data.data.map(formatTickerData);
+    if (data.code === '00000' || (Array.isArray(data) && data.length > 0)) {
+      // Mettre à jour le cache
+      tickersCache = data.data || [];
       lastFetchTime = now;
-      console.log(`Fetched and formatted ${tickersCache.length} tickers from Bitget API`);
+      console.log(`Fetched ${tickersCache.length} tickers from Bitget API`);
       return res.json(tickersCache);
     } else {
       console.error('Error from Bitget API:', data);
@@ -85,9 +73,10 @@ app.get('/api/bitget/all-tickers', async (req, res) => {
   }
 });
 
-// Endpoint pour un ticker spécifique (utilise le cache)
+// Endpoint pour un ticker spécifique (maintenant utilise le cache)
 app.get('/api/bitget/ticker', async (req, res) => {
-  const symbol = (req.query.symbol || 'BTCUSDT').toUpperCase().trim();
+  const raw = req.query.symbol || 'BTCUSDT_SPBL';
+  const symbol = raw.toUpperCase().trim();
   
   try {
     // D'abord essayer de récupérer depuis le cache
@@ -96,32 +85,33 @@ app.get('/api/bitget/ticker', async (req, res) => {
       return res.json(cachedTicker);
     }
     
-    // Si pas dans le cache, retourner une erreur
-    return res.status(404).json({ 
-      error: 'Ticker not found in cache. Please refresh the all-tickers endpoint first.' 
-    });
+    // Sinon, faire une requête directe
+    const url = `https://api.bitget.com/api/spot/v1/market/ticker?symbol=${symbol}`;
+    console.log('Fetching single ticker:', url);
+    
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (response.ok && data.code === '00000') {
+      // Mettre à jour le cache
+      tickersCache = tickersCache.filter(t => t.symbol !== symbol);
+      tickersCache.push(data.data);
+      return res.json(data.data);
+    } else {
+      return res.status(response.status).json({ error: data });
+    }
   } catch (err) {
     console.error('Error:', err);
     return res.status(500).json({ error: String(err) });
   }
 });
 
-// Endpoint pour les bougies et variation % (5min et 1h)
+// Endpoint pour les bougies et variation %
 app.get('/api/bitget/candles', async (req, res) => {
-  const raw = req.query.symbol || 'BTCUSDT';
-  const period = req.query.period || '1h'; // '5m' ou '1h'
+  const raw = req.query.symbol || 'BTCUSDT_SPBL';
+  const period = req.query.period || '1h'; // '5min' ou '1h'
   const symbol = raw.toUpperCase().trim();
-  
-  // Ajouter le suffixe USDT si nécessaire
-  const fullSymbol = symbol.endsWith('USDT') ? symbol : `${symbol}USDT`;
-  
-  // Utiliser les bons endpoints pour USDT-FUTURES
-  let url;
-  if (period === '5m') {
-    url = `https://api.bitget.com/api/v2/mix/market/candles?symbol=${fullSymbol}&productType=USDT-FUTURES&granularity=5m&limit=2`;
-  } else {
-    url = `https://api.bitget.com/api/v2/mix/market/candles?symbol=${fullSymbol}&productType=USDT-FUTURES&granularity=1H&limit=2`;
-  }
+  const url = `https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=${period}&limit=1`;
 
   console.log(`Requesting candles: ${url}`);
 
@@ -129,31 +119,23 @@ app.get('/api/bitget/candles', async (req, res) => {
     const response = await fetch(url);
     const data = await response.json();
 
-    if (response.ok && data.code === '00000' && data.data && data.data.length >= 2) {
-      // Prendre les 2 dernières bougies pour calculer la variation
-      const current = data.data[0];
-      const previous = data.data[1];
-      
-      const open = parseFloat(previous.close);
-      const close = parseFloat(current.close);
+    if (response.ok && data.code === '00000' && data.data && data.data.length > 0) {
+      const candle = data.data[0];
+      const open = parseFloat(candle.open);
+      const close = parseFloat(candle.close);
 
-      const variation = open !== 0 ? ((close - open) / open) * 100 : 0; // en pourcentage
+      const variation = ((close - open) / open) * 100; // en pourcentage
 
       return res.json({
-        symbol: fullSymbol,
+        symbol,
         period,
         open,
         close,
         variation: variation.toFixed(8), // ex: -0.0315
-        ts: current.ts,
+        ts: candle.ts,
       });
     } else {
-      console.error('API Error:', data);
-      return res.status(response.status).json({ 
-        error: data.msg || 'Failed to fetch candles',
-        code: data.code,
-        data: data 
-      });
+      return res.status(response.status).json({ error: data });
     }
 
   } catch (err) {
@@ -162,16 +144,28 @@ app.get('/api/bitget/candles', async (req, res) => {
   }
 });
 
-// Endpoint de santé
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'OK', 
-    cachedTickers: tickersCache.length,
-    lastUpdate: new Date(lastFetchTime).toISOString()
-  });
-});
-
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
+app.get('/api/bitget/products', async (req, res) => {
+  const url = 'https://api.bitget.com/api/spot/v1/public/products';
+
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (response.ok && data.code === '00000') {
+      return res.json(data.data);
+    } else {
+      return res.status(response.status).json({ error: data });
+    }
+  } catch (err) {
+    console.error('Error:', err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
