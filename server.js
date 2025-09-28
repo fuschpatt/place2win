@@ -106,7 +106,7 @@ app.get('/api/bitget/all-tickers', async (req, res) => {
 });
 
 // Les endpoints existants
-app.get('/api/bitget/ticker', async (req, res) => {
+app.get('/api/bitget/all-tickers', async (req, res) => {
   const raw = req.query.symbol || 'BTCUSDT_SPBL';
   const symbol = raw.toUpperCase().trim();
   try {
