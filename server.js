@@ -11,8 +11,51 @@ let tickersCache = [];
 let lastFetchTime = 0;
 const CACHE_DURATION = 30000; // 30 secondes
 
+// Stockage des alertes de hausses importantes
+let spikeAlerts = [];
+const SPIKE_THRESHOLD = 0.04; // 4% de hausse
+
 // Clé API Bitget (à sécuriser en production)
 const BITGET_API_KEY = 'bg_d361a55fbc6ed7519dd00b39ba9af08e';
+
+// Fonction pour détecter les hausses importantes
+function detectSpikes(tickerData) {
+  if (!tickerData || !Array.isArray(tickerData)) return;
+  
+  tickerData.forEach(ticker => {
+    if (ticker.change5m && parseFloat(ticker.change5m) >= SPIKE_THRESHOLD) {
+      const symbol = ticker.symbol ? ticker.symbol.replace('USDT_SPBL', '') : 'Unknown';
+      const spikeValue = parseFloat(ticker.change5m);
+      
+      // Vérifier si cette alerte n'existe pas déjà (éviter les doublons)
+      const existingAlert = spikeAlerts.find(alert => 
+        alert.symbol === symbol && 
+        Math.abs(alert.spikeValue - spikeValue) < 0.001 &&
+        (Date.now() - alert.timestamp) < 300000 // 5 minutes
+      );
+      
+      if (!existingAlert) {
+        const alert = {
+          symbol: symbol,
+          spikeValue: spikeValue,
+          spikePercent: (spikeValue * 100).toFixed(2),
+          timestamp: Date.now(),
+          date: new Date().toLocaleString('fr-FR'),
+          price: ticker.close || ticker.last || 0
+        };
+        
+        spikeAlerts.unshift(alert); // Ajouter au début de la liste
+        
+        // Garder seulement les 50 dernières alertes
+        if (spikeAlerts.length > 50) {
+          spikeAlerts = spikeAlerts.slice(0, 50);
+        }
+        
+        console.log(`🚀 Hausse détectée: ${symbol} +${alert.spikePercent}%`);
+      }
+    }
+  });
+}
 
 // Autoriser CORS
 app.use((req, res, next) => {
@@ -55,6 +98,10 @@ app.get('/api/bitget/all-tickers', async (req, res) => {
       // Mettre à jour le cache
       tickersCache = data.data || [];
       lastFetchTime = now;
+      
+      // Détecter les hausses importantes
+      detectSpikes(tickersCache);
+      
       console.log(`Fetched ${tickersCache.length} tickers from Bitget API`);
       return res.json(tickersCache);
     } else {
@@ -163,6 +210,18 @@ app.get('/api/bitget/products', async (req, res) => {
   } catch (err) {
     console.error('Error:', err);
     return res.status(500).json({ error: String(err) });
+  }
+});
+
+// Endpoint pour récupérer les alertes de hausses importantes
+app.get('/api/spike-alerts', (req, res) => {
+  try {
+    // Retourner les alertes triées par timestamp (plus récentes en premier)
+    const sortedAlerts = spikeAlerts.sort((a, b) => b.timestamp - a.timestamp);
+    res.json(sortedAlerts);
+  } catch (err) {
+    console.error('Error fetching spike alerts:', err);
+    res.status(500).json({ error: 'Failed to fetch spike alerts' });
   }
 });
 
